@@ -1,0 +1,6 @@
+pypodio2  # Podio baðlantýsý için
+gspread   # Google Sheets için
+google-auth # Google güvenlik doðrulamasý için
+openai    # Yapay zeka için
+python-dotenv # .env dosyasýný okumak için
+pandas    # Veri manipülasyonu için
