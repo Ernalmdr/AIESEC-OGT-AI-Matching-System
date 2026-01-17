@@ -1,35 +1,31 @@
 import requests
 import json
 import os
+import streamlit as st
 from dotenv import load_dotenv
 from src.core.models import ExchangeParticipant
 
 load_dotenv()
 
-
 class PodioRepository:
-   # Hem Streamlit Secrets'ı hem de yerel .env dosyasını kontrol eden yapı
-        def get_credential(key):
-            # Önce Streamlit Cloud kasasına bak
+    def __init__(self):
+        # Yardımcı fonksiyon: Hem Secrets hem .env kontrol eder
+        def get_conf(key):
             if hasattr(st, "secrets") and key in st.secrets:
                 return st.secrets[key]
-            # Yoksa bilgisayardaki .env dosyasına bak
             return os.getenv(key)
 
-        self.client_id = get_credential("PODIO_CLIENT_ID")
-        self.client_secret = get_credential("PODIO_CLIENT_SECRET")
-        self.username = get_credential("PODIO_USERNAME")
-        self.password = get_credential("PODIO_PASSWORD")
+        self.client_id = get_conf("PODIO_CLIENT_ID")
+        self.client_secret = get_conf("PODIO_CLIENT_SECRET")
+        self.username = get_conf("PODIO_USERNAME")
+        self.password = get_conf("PODIO_PASSWORD")
 
         self.auth_url = "https://podio.com/oauth/token"
         self.access_token = None
 
-        # Eğer bilgiler yoksa Streamlit ekranına hata bas
-        if not self.client_id or not self.client_secret or not self.username or not self.password:
-            error_msg = "❌ HATA: Podio bilgileri eksik! Lütfen Streamlit Secrets ayarlarını kontrol et."
-            st.error(error_msg)
-            raise ValueError(error_msg)
-        # --- DEĞİŞİKLİK BURADA BİTİYOR -ValueError("❌ HATA: .env dosyasında eksik bilgiler var.")
+        # Bilgiler eksikse hata vermemesi için kontrol, ama log basar
+        if not all([self.client_id, self.client_secret, self.username, self.password]):
+            print("⚠️ Podio bilgileri eksik (Secrets veya .env kontrol edin).")
 
     def _get_access_token(self):
         payload = {
@@ -40,21 +36,25 @@ class PodioRepository:
             "client_secret": self.client_secret
         }
         try:
+            # Timeout ekleyerek sonsuz döngüden kaçınma
             response = requests.post(self.auth_url, data=payload, timeout=30)
+            
             if response.status_code != 200:
-                raise Exception(f"Giriş Başarısız! Hata: {response.text}")
+                # Hata detayını string'e çevirip fırlat
+                raise Exception(f"Giriş Başarısız! Status: {response.status_code}, Mesaj: {response.text}")
+                
             return response.json().get("access_token")
+            
         except requests.exceptions.RequestException as e:
             raise Exception(f"Podio Bağlantı Hatası: {e}")
 
     def add_comment(self, item_id, comment_text):
         """
-        Belirtilen Item ID'ye (Uzun ID) yorum yazar.
+        Belirtilen Item ID'ye yorum yazar.
         """
         if not self.access_token:
             self.access_token = self._get_access_token()
 
-        # Podio API: Yorum Ekleme Endpoint'i
         url = f"https://api.podio.com/comment/item/{item_id}"
 
         headers = {
@@ -65,24 +65,32 @@ class PodioRepository:
         payload = {"value": comment_text}
 
         try:
-            response = requests.post(url, headers=headers, json=payload)
+            response = requests.post(url, headers=headers, json=payload, timeout=30)
 
-            # Eğer token süresi dolduysa (401), yenileyip tekrar dene
+            # Token süresi dolduysa (401), yenileyip tekrar dene
             if response.status_code == 401:
                 self.access_token = self._get_access_token()
                 headers["Authorization"] = f"OAuth2 {self.access_token}"
-                response = requests.post(url, headers=headers, json=payload)
+                response = requests.post(url, headers=headers, json=payload, timeout=30)
 
             if response.status_code != 200:
                 raise Exception(f"Yorum Hatası ({response.status_code}): {response.text}")
 
             return True
         except Exception as e:
-            raise Exception(f"Podio Yorum Hatası: {e}")
+            print(f"Yorum eklenirken hata: {e}")
+            return False
 
     def fetch_applicants(self, app_id, view_id=None):
+        """
+        Başvuruları çeker.
+        """
         if not self.access_token:
-            self.access_token = self._get_access_token()
+            try:
+                self.access_token = self._get_access_token()
+            except Exception as e:
+                st.error(f"Podio Token Hatası: {e}")
+                return []
 
         base_url = f"https://api.podio.com/item/app/{app_id}/filter/"
         url = f"{base_url}{view_id}/" if view_id else base_url
@@ -92,80 +100,92 @@ class PodioRepository:
             "Content-Type": "application/json"
         }
 
-        response = requests.post(url, headers=headers, json={"limit": 50})
+        try:
+            response = requests.post(url, headers=headers, json={"limit": 50}, timeout=30)
 
-        if response.status_code == 401:
-            self.access_token = self._get_access_token()
-            headers["Authorization"] = f"OAuth2 {self.access_token}"
-            response = requests.post(url, headers=headers, json={"limit": 50})
+            if response.status_code == 401:
+                self.access_token = self._get_access_token()
+                headers["Authorization"] = f"OAuth2 {self.access_token}"
+                response = requests.post(url, headers=headers, json={"limit": 50}, timeout=30)
 
-        if response.status_code != 200:
-            raise Exception(f"Hata: {response.status_code} {response.text}")
+            if response.status_code != 200:
+                st.error(f"Podio Veri Çekme Hatası: {response.status_code}")
+                return []
 
-        data = response.json()
-        items = data.get("items") or []
+            data = response.json()
+            items = data.get("items") or []
 
-        applicants = []
+            applicants = []
 
-        for item in items:
-            fields = item.get("fields") or []
+            for item in items:
+                fields = item.get("fields") or []
+                
+                # Yorum için gerekli item_id
+                ep_id_long = str(item.get("item_id"))
 
-            # ÖNEMLİ DEĞİŞİKLİK: Yorum yazabilmek için 'item_id' (Uzun ID) kullanıyoruz.
-            # Merak etme, linkler bu ID ile de çalışır.
-            ep_id = str(item.get("item_id"))
+                name = item.get("title", "İsimsiz Aday")
+                email = "Mail Bulunamadı"
+                phone = ""
+                bg_university = ""
+                bg_career = ""
+                skills = []
 
-            name = item.get("title", "İsimsiz Aday")
-            email = "Mail Bulunamadı"
-            phone = ""
-            bg_university = ""
-            bg_career = ""
-            skills = []
+                for f in fields:
+                    label = f.get("label", "")
+                    if not label: continue
 
-            for f in fields:
-                label = f.get("label", "")
-                if not label: continue
+                    values = f.get("values") or []
+                    if not values: continue
 
-                values = f.get("values") or []
-                if not values: continue
+                    val0 = values[0]
+                    # Podio value bazen dict bazen direkt değer döner
+                    raw_val = val0.get("value") if isinstance(val0, dict) else val0
 
-                val0 = values[0]
-                raw_val = val0.get("value") if isinstance(val0, dict) else val0
-
-                if label == "EP Name":
-                    name = raw_val
-                elif label == "EP Email":
-                    email = raw_val
-                elif label == "EP Phone Number":
-                    phone = raw_val
-                elif label == "University":
-                    if isinstance(raw_val, dict):
-                        bg_university = raw_val.get("text", "")
-                    else:
-                        bg_university = raw_val
-                elif label == "Career":
-                    bg_career = raw_val
-                elif any(x in label.lower() for x in ["skill", "yetenek", "language", "english", "passport"]):
-                    for v in values:
-                        if isinstance(v, dict) and "value" in v:
-                            val_content = v["value"]
-                            if isinstance(val_content, dict):
-                                skills.append(val_content.get("text", ""))
+                    # Etiket eşleştirme (Label isimleri Podio'nuzla aynı olmalı)
+                    if label == "EP Name":
+                        name = raw_val
+                    elif label == "EP Email":
+                        email = raw_val
+                    elif label == "EP Phone Number":
+                        phone = raw_val
+                    elif label == "University":
+                        if isinstance(raw_val, dict):
+                            bg_university = raw_val.get("text", "")
+                        else:
+                            bg_university = str(raw_val)
+                    elif label == "Career":
+                        bg_career = str(raw_val)
+                    # Yetenekleri yakalama (Skill, Language, English vb. içeren tüm alanlar)
+                    elif any(x in label.lower() for x in ["skill", "yetenek", "language", "english", "passport"]):
+                        for v in values:
+                            if isinstance(v, dict) and "value" in v:
+                                val_content = v["value"]
+                                if isinstance(val_content, dict):
+                                    skills.append(val_content.get("text", ""))
+                                else:
+                                    skills.append(str(val_content))
+                            elif isinstance(v, dict) and "text" in v: # Bazen direkt text alanı olabilir
+                                skills.append(v["text"])
                             else:
-                                skills.append(str(val_content))
+                                skills.append(str(v))
 
-            final_bg = []
-            if bg_career: final_bg.append(str(bg_career))
-            if bg_university: final_bg.append(str(bg_university))
-            background_str = " - ".join(final_bg) if final_bg else "Belirtilmemiş"
+                final_bg = []
+                if bg_career: final_bg.append(str(bg_career))
+                if bg_university: final_bg.append(str(bg_university))
+                background_str = " - ".join(final_bg) if final_bg else "Belirtilmemiş"
 
-            ep = ExchangeParticipant(
-                ep_id=ep_id,
-                full_name=name,
-                email=email,
-                background=background_str,
-                skills=skills,
-                phone=phone
-            )
-            applicants.append(ep)
+                ep = ExchangeParticipant(
+                    ep_id=ep_id_long,
+                    full_name=name,
+                    email=email,
+                    background=background_str,
+                    skills=skills,
+                    phone=phone
+                )
+                applicants.append(ep)
 
-        return applicants
+            return applicants
+
+        except Exception as e:
+            st.error(f"Podio İşlem Hatası: {e}")
+            return []
