@@ -8,17 +8,28 @@ load_dotenv()
 
 
 class PodioRepository:
-    def __init__(self):
-        self.client_id = os.getenv("PODIO_CLIENT_ID")
-        self.client_secret = os.getenv("PODIO_CLIENT_SECRET")
-        self.username = os.getenv("PODIO_USERNAME")
-        self.password = os.getenv("PODIO_PASSWORD")
+   # Hem Streamlit Secrets'ı hem de yerel .env dosyasını kontrol eden yapı
+        def get_credential(key):
+            # Önce Streamlit Cloud kasasına bak
+            if hasattr(st, "secrets") and key in st.secrets:
+                return st.secrets[key]
+            # Yoksa bilgisayardaki .env dosyasına bak
+            return os.getenv(key)
+
+        self.client_id = get_credential("PODIO_CLIENT_ID")
+        self.client_secret = get_credential("PODIO_CLIENT_SECRET")
+        self.username = get_credential("PODIO_USERNAME")
+        self.password = get_credential("PODIO_PASSWORD")
 
         self.auth_url = "https://podio.com/oauth/token"
         self.access_token = None
 
+        # Eğer bilgiler yoksa Streamlit ekranına hata bas
         if not self.client_id or not self.client_secret or not self.username or not self.password:
-            raise ValueError("❌ HATA: .env dosyasında eksik bilgiler var.")
+            error_msg = "❌ HATA: Podio bilgileri eksik! Lütfen Streamlit Secrets ayarlarını kontrol et."
+            st.error(error_msg)
+            raise ValueError(error_msg)
+        # --- DEĞİŞİKLİK BURADA BİTİYOR -ValueError("❌ HATA: .env dosyasında eksik bilgiler var.")
 
     def _get_access_token(self):
         payload = {
