@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 from sentence_transformers import SentenceTransformer, util
 
 from src.services.pdf_generator import PDFReportGenerator
+EXCLUDED_LCS = ["M.A.H.E.", "MAHE"]
 # --- STREAMLIT SECRETS KÖPRÜSÜ ---
 # Bu kod, Streamlit kasasındaki şifreleri uygulamanın kullanabileceği hale getirir.
 if hasattr(st, "secrets"):
@@ -89,6 +90,16 @@ def main():
     f_duration = st.sidebar.selectbox("⏳ Süre", ["Farketmez", "Kısa (Short)", "Orta (Medium)", "Uzun (Long)"])
     f_paid_only = st.sidebar.checkbox("💰 Sadece Maaşlı Projeler")
 
+    # --- 1. SOL BAR: YASAKLI LC LİSTESİ (Sidebar içinde uygun bir yere ekleyin) ---
+    st.sidebar.header("🛡️ Güvenlik Filtreleri")
+    forbidden_lcs_input = st.sidebar.text_input(
+            "Yasaklı LC'ler (Virgülle ayırın)", 
+            value="M.A, H.E",
+            help="Buraya yazdığınız LC'lere ait projeler asla listelenmez."
+            )
+# Girilen metni temiz bir listeye çevirelim
+forbidden_lcs = [lc.strip().lower() for lc in forbidden_lcs_input.split(",") if lc.strip()]
+
     # --- ANA EKRAN ---
     if st.session_state['applicants']:
         names = [a.full_name for a in st.session_state['applicants']]
@@ -161,6 +172,9 @@ def main():
                             country_check = (p.country or "").lower()
                             if "turkey" in country_check or "türkiye" in country_check:
                                 continue  # Bu projeyi atla, listeye ekleme
+                            current_lc = (getattr(p, 'home_lc', '') or "").lower()
+                            if any(forbidden in current_lc for forbidden in forbidden_lcs):
+                                continue
                             search_text = (p.title + " " + p.organisation + " " + getattr(p, 'home_lc', '')).lower()
                             if f_country and f_country.lower() not in search_text: continue
                             if f_field and f_field.lower() not in search_text: continue
