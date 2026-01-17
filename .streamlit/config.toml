@@ -1,0 +1,10 @@
+[server]
+runOnSave = true
+headless = true
+
+[browser]
+gatherUsageStats = false
+
+# Sunucunun kapanmasını engellemek için timeout süresini uzatıyoruz
+[global]
+developmentMode = false

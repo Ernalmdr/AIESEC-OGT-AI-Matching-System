@@ -1,0 +1,8 @@
+streamlit
+requests
+beautifulsoup4
+python-dotenv
+PyPDF2
+gspread
+google-auth
+google-auth-oauthlib
