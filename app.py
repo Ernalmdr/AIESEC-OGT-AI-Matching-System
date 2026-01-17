@@ -10,6 +10,18 @@ from dotenv import load_dotenv
 from sentence_transformers import SentenceTransformer, util
 
 from src.services.pdf_generator import PDFReportGenerator
+# --- STREAMLIT SECRETS KÖPRÜSÜ ---
+# Bu kod, Streamlit kasasındaki şifreleri uygulamanın kullanabileceği hale getirir.
+if hasattr(st, "secrets"):
+    # 1. Tüm şifreleri sisteme tanıt
+    for key, value in st.secrets.items():
+        os.environ[key] = str(value)
+    
+    # 2. Google Dosyasını (credentials.json) sanal olarak oluştur
+    if "GOOGLE_CREDENTIALS" in st.secrets:
+        with open("credentials.json", "w") as f:
+            f.write(st.secrets["GOOGLE_CREDENTIALS"])
+# ----------------------------------
 
 # --- 1. AYARLAR ---
 st.set_page_config(page_title="OGT AI Matcher", layout="wide", page_icon="🤖")
