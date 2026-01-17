@@ -6,3 +6,5 @@ PyPDF2
 gspread
 google-auth
 google-auth-oauthlib
+sentence-transformers
+fpdf2

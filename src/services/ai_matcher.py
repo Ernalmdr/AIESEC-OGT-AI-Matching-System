@@ -35,42 +35,43 @@ class AIMatcher:
             """
 
         prompt = f"""
-        Sen AIESEC Global Talent Programı için "Headhunter" (Yetenek Avcısı) gibi düşünen profesyonel bir yapay zeka asistanısın.
+                Sen AIESEC Global Talent programı için hem teknik bir İşe Alım Uzmanı (Recruiter) hem de usta bir Satışçısın.
 
-        ### 👤 ADAY PROFİLİ
-        - İsim: {ep.full_name}
-        - Bölüm: {ep.background}
-        - Yetenekler: {", ".join(ep.skills)}
-        - CV Özeti: {cv_content[:1500] if cv_content else "CV Yok."}
+                GÖREV: Aşağıdaki adayı ve projeyi analiz et. Önce teknik uygunluğunu değerlendir, sonra bu projeyi adaya satmak için bana koz ver.
 
-        ### 🏢 ANALİZ EDİLECEK PROJELER
-        {projects_text}
+                ADAY VERİLERİ:
+        	- İsim: {ep.full_name}
+                - Profil: {ep.background}
+                - Yetenekler: {", ".join(ep.skills)}
+                - CV Detayı: {cv_content if cv_content else "CV yok (Sadece profile odaklan)"}
 
-        ### 📋 GÖREVİN
-        Yukarıdaki projelerin her birini aday ile eşleştir ve aşağıdaki formatta bir JSON listesi oluştur.
+        	### 🏢 ANALİZ EDİLECEK PROJELER
+                {projects_text}
 
-        WhatsApp Mesajı Kuralları:
-        1. Samimi, enerjik ve profesyonel ol (AIESEC tonu).
-        2. Adayın ismini kullan.
-        3. Projenin en vurucu özelliğini (Maaş, Ülke veya Şirket) hemen başta söyle.
-        4. "Senin profiline çok uygun çünkü..." kalıbını kullanarak kişiselleştir.
-        5. Sorulacak bir soru ile bitir (Örn: "Detayları konuşalım mı?").
-        6. Emoji kullan 🚀🌍💼
+    
 
-        JSON FORMATI (Sadece bu listeyi döndür):
-        [
-            {{
-                "project_index": 0,
-                "technical_match": "CV'deki [Yetenek] ile projedeki [Gereksinim] tam uyuşuyor...",
-                "culture_fit": "Adayın geçmişi [Ülke] çalışma kültürüne...",
-                "pain_points": "Vize süreci uzun olabilir veya deneyim az kalabilir...",
-                "sales_pitch": "Bu proje sana [Şirket] bünyesinde global bir network kazandırır...",
-                "interview_q": "Daha önce [Konu] ile ilgili zor bir durumu nasıl yönettin?",
-                "score": 85,
-                "whatsapp_msg": "Selam [Ad]! 🚀 [Ülke]'de harika bir [Pozisyon] fırsatı var..."
-            }}
-        ]
-        """
+                İSTENEN JSON ÇIKTISI:
+                {{
+
+
+        	    "project_index": 0,
+                    "technical_match": "CV'deki [Yetenek] ile projedeki [Gereksinim] tam uyuşuyor...",
+                    "culture_fit": "Adayın geçmişi [Ülke] çalışma kültürüne...",
+                    "score": (0-100 arası gerçekçi uyum puanı),
+
+                    "suitability_analysis": "OBJEKTİF ANALİZ: Aday bu işi teknik olarak yapabilir mi? Hangi yeteneği tam uyuyor, hangisi eksik? 'Adayın X tecrübesi var ama Y konusunda zorlanabilir' gibi dürüst ve net bir teknik değerlendirme yaz.",
+
+                    "sales_pitch": "VİZYON SATIŞI: Adayı heyecanlandıracak, teknik detaylardan çok 'kariyerine katacağı değere' odaklanan 2-3 cümlelik motivasyon konuşması.",
+
+                    "pain_points": "İKNA KOZU (PAIN POINT): Adayın profilindeki eksikleri veya kariyerindeki boşlukları (örn: yurtdışı deneyimi yok, İngilizcesi teorik kalmış vb.) tespit et. 'Bak senin X eksiğin var, bu proje tam da bunu kapatıyor, gitmezsen geride kalırsın' diyebileceğimiz, adayı 'Evet buna ihtiyacım var' dedirtecek 2 kritik koz.",
+
+                    "whatsapp_msg": "Adaya projeyi atan, samimi, harekete geçirici kısa mesaj."
+                }}
+                {{
+                "project_index": 2,
+                ... (Diğer projeler için aynı format)
+                }}
+                """
 
         payload = {"contents": [{"parts": [{"text": prompt}]}]}
 

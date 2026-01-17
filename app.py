@@ -7,6 +7,9 @@ import pandas as pd
 import random
 import json
 from dotenv import load_dotenv
+from sentence_transformers import SentenceTransformer, util
+
+from src.services.pdf_generator import PDFReportGenerator
 
 # --- 1. AYARLAR ---
 st.set_page_config(page_title="OGT AI Matcher", layout="wide", page_icon="🤖")
@@ -28,7 +31,11 @@ except ImportError as e:
 
 load_dotenv()
 
-
+# --- YAPAY ZEKA MODELİNİ YÜKLE (ÖNBELLEK) ---
+@st.cache_resource
+def load_embedding_model():
+    # Bu model hem hızlı hem de anlamsal ilişkileri çok iyi yakalar
+    return SentenceTransformer('all-MiniLM-L6-v2')
 def main():
     st.title("🤖 AIESEC OGT Operasyon Paneli v2.1")
 
@@ -139,6 +146,9 @@ def main():
                         # Filtreleme (Ülke & Departman)
                         filtered = []
                         for p in all_projects:
+                            country_check = (p.country or "").lower()
+                            if "turkey" in country_check or "türkiye" in country_check:
+                                continue  # Bu projeyi atla, listeye ekleme
                             search_text = (p.title + " " + p.organisation + " " + getattr(p, 'home_lc', '')).lower()
                             if f_country and f_country.lower() not in search_text: continue
                             if f_field and f_field.lower() not in search_text: continue
@@ -148,58 +158,61 @@ def main():
                             st.error("❌ Kriterlere uygun proje bulunamadı.")
                             st.session_state.filtered_projects_cache = []
                         else:
-                            # --- AI DESTEKLİ PUANLAMA ---
+                            # --- 1. MODELİ HAZIRLA ---
+                            embedder = load_embedding_model()  # Modeli çağır
+
+                            # --- 2. VEKTÖR HESAPLAMA (SEMANTİK ARAMA) ---
+                            st.info("🧠 Yapay Zeka, ilanları anlamsal olarak analiz ediyor...")
+
+                            # Adayın profilini metne çevir
+                            candidate_text = f"{ep.background} {' '.join(ep.skills)}"
+                            # Vektör oluştur
+                            candidate_embedding = embedder.encode(candidate_text, convert_to_tensor=True)
+
+                            # Tüm projelerin başlık ve açıklamalarını vektöre çevir (Toplu işlem)
+                            project_texts = [f"{p.title} {p.organisation} {p.description[:300]}" for p in filtered]
+                            project_embeddings = embedder.encode(project_texts, convert_to_tensor=True)
+
+                            # Benzerlik skorlarını hesapla (Cosine Similarity)
+                            # Sonuç 0 ile 1 arasındadır (0.85 = %85 Benzerlik)
+                            cosine_scores = util.cos_sim(candidate_embedding, project_embeddings)[0]
+
+                            # --- 3. HİBRİT PUANLAMA (Vektör + Kelime) ---
                             scored_projects = []
 
-                            # Artık AI'dan gelen temiz kelimeleri kullanıyoruz
-                            keywords = ai_keywords
-                            synonyms = {
-                                "marketing": ["sales", "brand", "market", "digital"],
-                                "teaching": ["education", "teacher", "language", "school"],
-                                "business": ["management", "admin", "finance", "operations"],
-                                "software": ["developer", "coding", "engineer", "it", "tech"]
-                            }
+                            # Destekleyici anahtar kelimeler (Bonus puan için)
+                            keywords = (ep.background + " " + " ".join(ep.skills)).lower().split()
 
-                            expanded_keywords = list(keywords)  # Kopyasını al
-                            for k in keywords:
-                                for main_key, sub_list in synonyms.items():
-                                    if k in sub_list or k == main_key:
-                                        expanded_keywords.extend(sub_list)
+                            for i, p in enumerate(filtered):
+                                final_score = 0
 
-                            keywords = list(set(expanded_keywords))  # Tekrarları sil
+                                # A. Vektör Puanı (Baz Puan)
+                                # 0.1 - 1.0 arasındaki sayıyı 100'lük sisteme çeviriyoruz.
+                                vector_score = float(cosine_scores[i]) * 100
+                                final_score += vector_score
 
-                            for p in filtered:
-                                score = 0
-                                title_txt = p.title.lower()
-                                org_txt = p.organisation.lower()
-                                # EXPA'dan gelen 'backgrounds' ve 'skills' listelerini de string yap
-                                tags_txt = " ".join(p.backgrounds + p.skills).lower()
-
+                                # B. Kelime Bonusu (Eski Yöntem Destekli)
+                                p_txt = (p.title + " " + p.organisation).lower()
                                 for k in keywords:
-                                    # Anahtar kelime Başlıkta geçiyorsa: 30 Puan (Çok önemli)
-                                    if k in title_txt:
-                                        score += 30
+                                    if len(k) > 3 and k in p_txt:
+                                        final_score += 5  # Kelime geçiyorsa ekstra 5 puan
 
-                                    # Projenin etiketlerinde (tags) geçiyorsa: 20 Puan
-                                    elif k in tags_txt:
-                                        score += 20
+                                # C. Rastgelelik (Çeşitlilik)
+                                final_score += random.randint(0, 3)
 
-                                    # Kurum adında geçiyorsa: 10 Puan
-                                    elif k in org_txt:
-                                        score += 10
+                                # Eşik Değer (Çok alakasızları elemek için örn: 20 puan altı)
+                                if final_score > 20:
+                                    scored_projects.append((final_score, p))
 
-                                # Rastgelelik (Çeşitlilik için)
-                                score += random.randint(0, 5)
-
-                                if score > 0:  # Sadece puan alanları ekle
-                                    scored_projects.append((score, p))
-
+                            # Puanı yüksekten düşüğe sırala
                             scored_projects.sort(key=lambda x: x[0], reverse=True)
+
+                            # Listeyi güncelle
                             st.session_state.filtered_projects_cache = [x[1] for x in scored_projects]
 
-                            top_score = scored_projects[0][0] if scored_projects else 0
-                            st.success(f"🔍 {len(filtered)} proje tarandı. En yüksek eşleşme skoru: {top_score}")
-
+                            # Kullanıcıya bilgi ver
+                            top_score = round(scored_projects[0][0], 1) if scored_projects else 0
+                            st.success(f"🚀 {len(filtered)} proje Yapay Zeka ile tarandı! En yüksek uyum: {top_score}")
                     except Exception as e:
                         st.error(f"Filtreleme Hatası: {e}")
 
@@ -249,9 +262,15 @@ def main():
                                     t1, t2 = st.tabs(["🧠 Analiz", "💬 Aksiyon"])
 
                                     with t1:
-                                        st.markdown(f"**💡 Satış:** {res.get('sales_pitch')}")
-                                        st.markdown(f"**⚠️ Riskler:** {res.get('pain_points')}")
+                                        st.markdown("### 🧐 Teknik Uygunluk Analizi")
+                                        st.info(res.get('suitability_analysis', 'Analiz yapılamadı.'))
 
+                                        # --- 2. SATIŞ TAKTİKLERİ ---
+                                        st.markdown("### 🎯 Satış Stratejisi")
+                                        st.success(f"**Nasıl Sunmalısın:** {res.get('sales_pitch', '')}")
+
+                                        st.markdown("### 🥊 İkna Kozları (Pain Points)")
+                                        st.warning(res.get('pain_points', ''))
                                         with st.popover("📄 İş Tanımı Detayı"):
                                             st.write(p.description)
 
@@ -292,6 +311,20 @@ def main():
                                                     st.toast("✅ Tabloya işlendi!")
                                                 except Exception as e:
                                                     st.error(f"Sheet Hatası: {e}")
+
+                                        st.divider()
+                                        # --- PDF RAPOR BUTONU ---
+                                        if st.button("📄 PDF Raporu İndir", key=f"btn_pdf_{i}"):
+                                            pdf_gen = PDFReportGenerator()
+                                            pdf_file = pdf_gen.create_report(ep.full_name, p, res)
+
+                                            with open(pdf_file, "rb") as f:
+                                                st.download_button(
+                                                    label="📥 Dosyayı Bilgisayarına İndir",
+                                                    data=f,
+                                                    file_name=pdf_file,
+                                                    mime="application/pdf"
+                                                )
 
                             except Exception as e:
                                 st.error(f"Gösterim Hatası: {e}")
