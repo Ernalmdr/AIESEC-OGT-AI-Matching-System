@@ -97,8 +97,8 @@ def main():
             value="M.A, H.E",
             help="Buraya yazdığınız LC'lere ait projeler asla listelenmez."
             )
-# Girilen metni temiz bir listeye çevirelim
-forbidden_lcs = [lc.strip().lower() for lc in forbidden_lcs_input.split(",") if lc.strip()]
+            # Girilen metni temiz bir listeye çevirelim
+    forbidden_lcs = [lc.strip().lower() for lc in forbidden_lcs_input.split(",") if lc.strip()]
 
     # --- ANA EKRAN ---
     if st.session_state['applicants']:
