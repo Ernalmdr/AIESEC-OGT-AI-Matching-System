@@ -4,6 +4,7 @@ import os
 import streamlit as st
 from dotenv import load_dotenv
 from src.core.models import ExchangeParticipant
+import time
 
 load_dotenv()
 
@@ -35,18 +36,27 @@ class PodioRepository:
             "client_id": self.client_id,
             "client_secret": self.client_secret
         }
-        try:
-            # Timeout ekleyerek sonsuz döngüden kaçınma
-            response = requests.post(self.auth_url, data=payload, timeout=30)
-            
-            if response.status_code != 200:
-                # Hata detayını string'e çevirip fırlat
+        max_retries = 3  # 3 kez deneme yap
+        for attempt in range(max_retries):
+            try:
+                # Timeout ekleyerek sonsuz döngüden kaçınma
+                response = requests.post(self.auth_url, data=payload, timeout=30)
+
+                if response.status_code == 200:
+                    return response.json().get("access_token")
+                if response.status_code in [503, 504]:
+                    print(f"⚠️ Podio meşgul, tekrar deneniyor ({attempt + 1}/{max_retries})...")
+                    time.sleep(2)  # 2 saniye bekle
+                    continue
+
+                 # Hata detayını string'e çevirip fırlat
                 raise Exception(f"Giriş Başarısız! Status: {response.status_code}, Mesaj: {response.text}")
-                
-            return response.json().get("access_token")
-            
-        except requests.exceptions.RequestException as e:
-            raise Exception(f"Podio Bağlantı Hatası: {e}")
+
+            except requests.exceptions.RequestException as e:
+                if attempt == max_retries - 1:
+                    raise Exception(f"Podio Bağlantı Hatası: {e}")
+                time.sleep(2)
+                return response.json().get("access_token")
 
     def add_comment(self, item_id, comment_text):
         """

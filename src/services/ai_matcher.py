@@ -1,138 +1,111 @@
 import os
+import httpx
 import requests
 import json
 import time
 import re
+import asyncio
 from src.utils.config_manager import ConfigManager
 
 
 class AIMatcher:
     def __init__(self):
-        # ConfigManager kullanarak güvenli key alımı (veya os.getenv)
         self.api_key = os.getenv("GEMINI_API_KEY")
-        self.model_name = "gemini-3-flash-preview"  # Daha hızlı ve yeni model
+        # ÖNEMLİ: gemini-3-flash-preview bazen stabil olmayabilir, 1.5-flash en güvenlisidir
+        self.model_name = "gemini-1.5-flash"
         self.url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model_name}:generateContent?key={self.api_key}"
 
-    def generate_batch_report(self, ep, projects, cv_content=""):
-        """
-        360 Derece Analiz: Teknik, Kültürel, Vize ve Satış Stratejisi
-        """
+    async def analyze_candidate_async(self, ep, projects, cv_content=""):
+        """Tek bir aday için projeleri asenkron analiz eder ve liste döndürür."""
 
         projects_text = ""
         for i, p in enumerate(projects):
-            # JD Scraper ile çekilen uzun açıklamayı kullanıyoruz
-            # Eğer açıklama çok uzunsa ilk 1500 karakteri alıp token tasarrufu yapıyoruz
             desc_preview = p.description[:1500] if p.description else "Detay yok."
-
             projects_text += f"""
-            --- PROJE {i} ---
+            --- PROJE INDEX: {i} ---
             - Başlık: {p.title}
             - Kurum: {p.organisation}
             - Ülke/Şehir: {p.country} / {p.city}
             - Maaş: {p.salary}
-            - Süre: {p.duration}
-            - İş Tanımı (Özet): {desc_preview}
+            - İş Tanımı: {desc_preview}
             """
 
+        # Prompt'ta JSON formatını LISTE ([ ]) olarak zorunlu kılıyoruz
         prompt = f"""
-                Sen AIESEC Global Talent programı için hem teknik bir İşe Alım Uzmanı (Recruiter) hem de usta bir Satışçısın.
+        Sen AIESEC Global Talent programı için teknik bir İşe Alım Uzmanı ve Satışçısın.
+        Adayı ve sunulan {len(projects)} projeyi analiz et. 
 
-                GÖREV: Aşağıdaki adayı ve projeyi analiz et. Önce teknik uygunluğunu değerlendir, sonra bu projeyi adaya satmak için bana koz ver.
+        ADAY: {ep.full_name}
+        PROFİL: {ep.background}
+        YETENEKLER: {", ".join(ep.skills)}
+        CV: {cv_content[:2000] if cv_content else "Yok"}
 
-                ADAY VERİLERİ:
-        	- İsim: {ep.full_name}
-                - Profil: {ep.background}
-                - Yetenekler: {", ".join(ep.skills)}
-                - CV Detayı: {cv_content if cv_content else "CV yok (Sadece profile odaklan)"}
+        PROJELER:
+        {projects_text}
 
-        	### 🏢 ANALİZ EDİLECEK PROJELER
-                {projects_text}
+        GÖREV: Her bir proje için analiz yap ve sonucu MUTLAKA bir JSON LISTESI ([...]) olarak dön.
 
-    
-
-                İSTENEN JSON ÇIKTISI:
-                {{
-
-
-        	    "project_index": 0,
-                    "technical_match": "CV'deki [Yetenek] ile projedeki [Gereksinim] tam uyuşuyor...",
-                    "culture_fit": "Adayın geçmişi [Ülke] çalışma kültürüne...",
-                    "score": (0-100 arası gerçekçi uyum puanı),
-
-                    "suitability_analysis": "OBJEKTİF ANALİZ: Aday bu işi teknik olarak yapabilir mi? Hangi yeteneği tam uyuyor, hangisi eksik? 'Adayın X tecrübesi var ama Y konusunda zorlanabilir' gibi dürüst ve net bir teknik değerlendirme yaz.",
-
-                    "sales_pitch": "VİZYON SATIŞI: Adayı heyecanlandıracak, teknik detaylardan çok 'kariyerine katacağı değere' odaklanan 2-3 cümlelik motivasyon konuşması.",
-
-                    "pain_points": "İKNA KOZU (PAIN POINT): Adayın profilindeki eksikleri veya kariyerindeki boşlukları (örn: yurtdışı deneyimi yok, İngilizcesi teorik kalmış vb.) tespit et. 'Bak senin X eksiğin var, bu proje tam da bunu kapatıyor, gitmezsen geride kalırsın' diyebileceğimiz, adayı 'Evet buna ihtiyacım var' dedirtecek 2 kritik koz.",
-
-                    "whatsapp_msg": "Adaya projeyi atan, samimi, harekete geçirici kısa mesaj."
-                }}
-                {{
-                "project_index": 2,
-                ... (Diğer projeler için aynı format)
-                }}
-                """
+        FORMAT:
+        [
+          {{
+            "project_index": 0,
+            "score": 85,
+            "suitability_analysis": "Teknik analiz...",
+            "sales_pitch": "Adaya satış konuşması...",
+            "pain_points": "İkna kozları...",
+            "whatsapp_msg": "Kısa mesaj..."
+          }},
+          ...
+        ]
+        """
 
         payload = {"contents": [{"parts": [{"text": prompt}]}]}
 
-        # --- Retry Logic ---
-        max_retries = 3
-        for attempt in range(max_retries):
+        async with httpx.AsyncClient() as client:
             try:
-                response = requests.post(self.url, json=payload, timeout=90)  # Süreyi uzattık
-
+                response = await client.post(self.url, json=payload, timeout=90.0)
                 if response.status_code == 200:
                     result = response.json()
-                    if "candidates" in result:
-                        raw = result['candidates'][0]['content']['parts'][0]['text']
-                        # JSON bloğunu temizle (Markdown ```json ... ``` kısımlarını siler)
-                        clean_json = raw.replace("```json", "").replace("```", "").strip()
-                        match = re.search(r"\[.*\]", clean_json, re.DOTALL)
-                        if match: return json.loads(match.group(0))
+                    raw_text = result['candidates'][0]['content']['parts'][0]['text']
 
-                elif response.status_code == 429:
-                    time.sleep(10)
-                    continue
-                else:
-                    print(f"Hata Kodu: {response.status_code}")
+                    # --- GÜÇLÜ JSON TEMİZLEME ---
+                    # Markdown bloklarını temizle
+                    clean_text = re.sub(r"```json|```", "", raw_text).strip()
+                    # Liste başlangıcını ve bitişini bul ([ ile başlar ] ile biter)
+                    match = re.search(r"\[.*\]", clean_text, re.DOTALL)
 
+                    if match:
+                        return json.loads(match.group(0))
+                    else:
+                        # Eğer liste değil de tek bir obje döndüyse listeye sar
+                        obj_match = re.search(r"\{.*\}", clean_text, re.DOTALL)
+                        if obj_match:
+                            return [json.loads(obj_match.group(0))]
+
+                print(f"API Hatası: {response.status_code}")
+                return []
             except Exception as e:
-                print(f"Bağlantı Hatası: {e}")
-                time.sleep(2)
+                print(f"Async Analiz Hatası: {e}")
+                return []
 
-        return []
+    async def run_parallel_analysis(self, applicants, projects, cv_content=""):
+        """Tüm adaylar için analizleri paralel olarak başlatır."""
+        tasks = []
+        for ep in applicants:
+            tasks.append(self.analyze_candidate_async(ep, projects, cv_content))
+
+        results = await asyncio.gather(*tasks)
+        return results
 
     def extract_keywords_from_cv(self, cv_text):
-        """
-        CV metninden gereksiz kelimeleri atıp sadece teknik yetenekleri çeker.
-        """
-        prompt = f"""
-        Sen uzman bir HR asistanısın. Aşağıdaki CV metnini analiz et.
-        Bana adayın en güçlü olduğu 15 teknik yeteneği (Hard Skills) ve alan bilgisini (Domain Knowledge) listele.
-
-        Kurallar:
-        1. Sadece İngilizce kelimeler kullan.
-        2. "Teamwork", "Hardworking" gibi soft skill'leri EKLEME.
-        3. "University", "Istanbul", "Address" gibi gereksiz bilgileri EKLEME.
-        4. Çıktı sadece ve sadece virgülle ayrılmış kelimeler olsun.
-
-        Örnek Çıktı: Python, Django, Marketing, SEO, Google Ads, Java, SQL
-
-        CV Metni:
-        {cv_text[:2000]}
-        """
-
+        """CV metninden yetenekleri ayıklar (Senkron)."""
+        prompt = f"Extract top 10 technical skills from this CV as a comma-separated list: {cv_text[:2000]}"
+        payload = {"contents": [{"parts": [{"text": prompt}]}]}
         try:
-            payload = {"contents": [{"parts": [{"text": prompt}]}]}
-            response = requests.post(self.url, json=payload, timeout=10)
-
+            response = requests.post(self.url, json=payload, timeout=15)
             if response.status_code == 200:
-                result = response.json()
-                raw_text = result['candidates'][0]['content']['parts'][0]['text']
-                # Virgülle ayrılmış metni listeye çevir ve temizle
-                keywords = [k.strip().lower() for k in raw_text.split(',')]
-                return keywords
-        except Exception as e:
-            print(f"Keyword Extraction Hatası: {e}")
-
-        return []  # Hata olursa boş dön
+                raw = response.json()['candidates'][0]['content']['parts'][0]['text']
+                return [k.strip().lower() for k in raw.split(',')]
+        except:
+            pass
+        return []

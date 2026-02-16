@@ -36,7 +36,7 @@ def save_history(processed_ids):
 
 
 def run_bot():
-    print("🤖 OGT AI Bot v2.1 (Hafızalı Mod) Başlatılıyor...")
+    print("🤖OGT AI Bot v2.1 (Ha fızalı Mod) Başlatılıyor...")
 
     # 0. Hafızayı Yükle
     processed_ids = load_history()
