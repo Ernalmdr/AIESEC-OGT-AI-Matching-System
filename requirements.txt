@@ -8,3 +8,5 @@ google-auth
 google-auth-oauthlib
 sentence-transformers
 fpdf2
+httpx
+nest_asyncio
