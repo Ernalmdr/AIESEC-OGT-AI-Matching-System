@@ -79,14 +79,14 @@ class AIMatcher:
                         return json.loads(match.group(0))
             
             # 2. Liste yoksa Tekil Obje kontrolü ({...})
-            obj_match = re.search(r"\{.*\}", clean_text, re.DOTALL)
-            if obj_match:
-                # Tekil objeyi listeye sararak döndür (Arayüzün liste beklemesi ihtimaline karşı)
-                return [json.loads(obj_match.group(0))]
-
-            # 3. İkisi de yoksa hata döndür
-            return {"error": "AI geçerli bir JSON listesi veya objesi döndüremedi."}
-
+                    obj_match = re.search(r"\{.*\}", clean_text, re.DOTALL)
+                    if obj_match:
+                        # Tekil objeyi listeye sararak döndür (Arayüzün liste beklemesi ihtimaline karşı)
+                        return [json.loads(obj_match.group(0))]
+        
+                    # 3. İkisi de yoksa hata döndür
+                    return {"error": "AI geçerli bir JSON listesi veya objesi döndüremedi."}
+        
                 print(f"API Hatası: {response.status_code}")
                 return []
             except Exception as e:
