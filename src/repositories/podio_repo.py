@@ -93,7 +93,7 @@ class PodioRepository:
 
     def fetch_applicants(self, app_id, view_id=None):
         """
-        Başvuruları çeker.
+        Podio'daki tüm başvuruları sayfalama (pagination) kullanarak çeker.
         """
         if not self.access_token:
             try:
@@ -110,92 +110,104 @@ class PodioRepository:
             "Content-Type": "application/json"
         }
 
+        applicants = []
+        limit = 50  # Her istekte çekilecek miktar
+        offset = 0  # Başlangıç noktası
+
         try:
-            response = requests.post(url, headers=headers, json={"limit": 50}, timeout=30)
-
-            if response.status_code == 401:
-                self.access_token = self._get_access_token()
-                headers["Authorization"] = f"OAuth2 {self.access_token}"
-                response = requests.post(url, headers=headers, json={"limit": 50}, timeout=30)
-
-            if response.status_code != 200:
-                st.error(f"Podio Veri Çekme Hatası: {response.status_code}")
-                return []
-
-            data = response.json()
-            items = data.get("items") or []
-
-            applicants = []
-
-            for item in items:
-                fields = item.get("fields") or []
+            while True:
+                # Sayfalama için limit ve offset gönderiyoruz
+                payload = {
+                    "limit": limit,
+                    "offset": offset
+                }
                 
-                # Yorum için gerekli item_id
-                ep_id_long = str(item.get("item_id"))
+                response = requests.post(url, headers=headers, json=payload, timeout=30)
 
-                name = item.get("title", "İsimsiz Aday")
-                email = "Mail Bulunamadı"
-                phone = ""
-                bg_university = ""
-                bg_career = ""
-                skills = []
+                # Token süresi dolmuşsa yenile
+                if response.status_code == 401:
+                    self.access_token = self._get_access_token()
+                    headers["Authorization"] = f"OAuth2 {self.access_token}"
+                    continue # Aynı offset ile tekrar dene
 
-                for f in fields:
-                    label = f.get("label", "")
-                    if not label: continue
+                if response.status_code != 200:
+                    st.error(f"Podio Veri Çekme Hatası: {response.status_code}")
+                    break
 
-                    values = f.get("values") or []
-                    if not values: continue
+                data = response.json()
+                items = data.get("items") or []
 
-                    val0 = values[0]
-                    # Podio value bazen dict bazen direkt değer döner
-                    raw_val = val0.get("value") if isinstance(val0, dict) else val0
+                # Eğer çekilecek öğe kalmadıysa döngüden çık
+                if not items:
+                    break
 
-                    # Etiket eşleştirme (Label isimleri Podio'nuzla aynı olmalı)
-                    if label == "EP Name":
-                        name = raw_val
-                    elif label == "EP Email":
-                        email = raw_val
-                    elif label == "EP Phone Number":
-                        phone = raw_val
-                    elif label == "University":
-                        if isinstance(raw_val, dict):
-                            bg_university = raw_val.get("text", "")
-                        else:
-                            bg_university = str(raw_val)
-                    elif label == "Career":
-                        bg_career = str(raw_val)
-                    # Yetenekleri yakalama (Skill, Language, English vb. içeren tüm alanlar)
-                    elif any(x in label.lower() for x in ["skill", "yetenek", "language", "english", "passport"]):
-                        for v in values:
-                            if isinstance(v, dict) and "value" in v:
-                                val_content = v["value"]
-                                if isinstance(val_content, dict):
-                                    skills.append(val_content.get("text", ""))
-                                else:
-                                    skills.append(str(val_content))
-                            elif isinstance(v, dict) and "text" in v: # Bazen direkt text alanı olabilir
-                                skills.append(v["text"])
+                for item in items:
+                    fields = item.get("fields") or []
+                    ep_id_long = str(item.get("item_id"))
+
+                    name = item.get("title", "İsimsiz Aday")
+                    email = "Mail Bulunamadı"
+                    phone = ""
+                    bg_university = ""
+                    bg_career = ""
+                    skills = []
+
+                    for f in fields:
+                        label = f.get("label", "")
+                        if not label: continue
+
+                        values = f.get("values") or []
+                        if not values: continue
+
+                        val0 = values[0]
+                        raw_val = val0.get("value") if isinstance(val0, dict) else val0
+
+                        if label == "EP Name":
+                            name = raw_val
+                        elif label == "EP Email":
+                            email = raw_val
+                        elif label == "EP Phone Number":
+                            phone = raw_val
+                        elif label == "University":
+                            if isinstance(raw_val, dict):
+                                bg_university = raw_val.get("text", "")
                             else:
-                                skills.append(str(v))
+                                bg_university = str(raw_val)
+                        elif label == "Career":
+                            bg_career = str(raw_val)
+                        elif any(x in label.lower() for x in ["skill", "yetenek", "language", "english", "passport"]):
+                            for v in values:
+                                if isinstance(v, dict) and "value" in v:
+                                    val_content = v["value"]
+                                    skills.append(val_content.get("text", "") if isinstance(val_content, dict) else str(val_content))
+                                elif isinstance(v, dict) and "text" in v:
+                                    skills.append(v["text"])
+                                else:
+                                    skills.append(str(v))
 
-                final_bg = []
-                if bg_career: final_bg.append(str(bg_career))
-                if bg_university: final_bg.append(str(bg_university))
-                background_str = " - ".join(final_bg) if final_bg else "Belirtilmemiş"
+                    final_bg = []
+                    if bg_career: final_bg.append(str(bg_career))
+                    if bg_university: final_bg.append(str(bg_university))
+                    background_str = " - ".join(final_bg) if final_bg else "Belirtilmemiş"
 
-                ep = ExchangeParticipant(
-                    ep_id=ep_id_long,
-                    full_name=name,
-                    email=email,
-                    background=background_str,
-                    skills=skills,
-                    phone=phone
-                )
-                applicants.append(ep)
+                    ep = ExchangeParticipant(
+                        ep_id=ep_id_long,
+                        full_name=name,
+                        email=email,
+                        background=background_str,
+                        skills=skills,
+                        phone=phone
+                    )
+                    applicants.append(ep)
+
+                # Bir sonraki sayfa için offset değerini artır
+                offset += limit
+                
+                # Kullanıcıya görsel geri bildirim (Opsiyonel)
+                # print(f"🔄 {offset} aday işlendi...")
 
             return applicants
 
         except Exception as e:
             st.error(f"Podio İşlem Hatası: {e}")
-            return []
+            return applicants
