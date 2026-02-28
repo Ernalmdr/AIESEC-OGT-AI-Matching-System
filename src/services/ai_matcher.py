@@ -11,12 +11,13 @@ from src.utils.config_manager import ConfigManager
 class AIMatcher:
     def __init__(self):
         self.api_key = os.getenv("GEMINI_API_KEY")
-        # ÖNEMLİ: gemini-3-flash-preview bazen stabil olmayabilir, 1.5-flash en güvenlisidir
-        self.model_name = "gemini-1.5-flash"
+        self.model_name = "gemini-3-flash-preview"
         self.url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model_name}:generateContent?key={self.api_key}"
 
     async def analyze_candidate_async(self, ep, projects, cv_content=""):
         """Tek bir aday için projeleri asenkron analiz eder ve liste döndürür."""
+        if not self.api_key:
+            return {"error": "GEMINI_API_KEY bulunamadı! Lütfen .env dosyasını kontrol edin."}
 
         projects_text = ""
         for i, p in enumerate(projects):
@@ -53,7 +54,7 @@ class AIMatcher:
             "suitability_analysis": "Teknik analiz...",
             "sales_pitch": "Adaya satış konuşması...",
             "pain_points": "İkna kozları...",
-            "whatsapp_msg": "Kısa mesaj..."
+            "whatsapp_msg": "Kısa mesaj ve proje linki..."
           }},
           ...
         ]
@@ -75,12 +76,16 @@ class AIMatcher:
                     match = re.search(r"\[.*\]", clean_text, re.DOTALL)
 
                     if match:
-                        return json.loads(match.group(0))
-                    else:
-                        # Eğer liste değil de tek bir obje döndüyse listeye sar
-                        obj_match = re.search(r"\{.*\}", clean_text, re.DOTALL)
-                        if obj_match:
-                            return [json.loads(obj_match.group(0))]
+                return json.loads(match.group(0))
+            
+            # 2. Liste yoksa Tekil Obje kontrolü ({...})
+            obj_match = re.search(r"\{.*\}", clean_text, re.DOTALL)
+            if obj_match:
+                # Tekil objeyi listeye sararak döndür (Arayüzün liste beklemesi ihtimaline karşı)
+                return [json.loads(obj_match.group(0))]
+
+            # 3. İkisi de yoksa hata döndür
+            return {"error": "AI geçerli bir JSON listesi veya objesi döndüremedi."}
 
                 print(f"API Hatası: {response.status_code}")
                 return []
