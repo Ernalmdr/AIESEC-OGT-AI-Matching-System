@@ -76,7 +76,7 @@ class AIMatcher:
                     match = re.search(r"\[.*\]", clean_text, re.DOTALL)
 
                     if match:
-                return json.loads(match.group(0))
+                        return json.loads(match.group(0))
             
             # 2. Liste yoksa Tekil Obje kontrolü ({...})
             obj_match = re.search(r"\{.*\}", clean_text, re.DOTALL)
