@@ -54,7 +54,7 @@ class AIMatcher:
             "suitability_analysis": "Teknik analiz...",
             "sales_pitch": "Adaya satış konuşması...",
             "pain_points": "İkna kozları...",
-            "whatsapp_msg": "Kısa mesaj ve proje linki..."
+            "whatsapp_msg": "Kısa mesaj..."
           }},
           ...
         ]
