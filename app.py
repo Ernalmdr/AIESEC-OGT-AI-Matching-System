@@ -224,7 +224,11 @@ def main():
                         # Asenkron Analiz
                         # ÖNEMLİ: ai_matcher.py içindeki analyze_candidate_async listesi dönmeli
                         results = asyncio.run(matcher.analyze_candidate_async(ep, batch, cv_text))
-                        st.session_state.ai_results_cache[batch_key] = results
+                        if isinstance(results, dict) and "error" in results:
+                            st.error(results["error"])
+                            st.session_state.ai_results_cache[batch_key] = []
+                        else:
+                            st.session_state.ai_results_cache[batch_key] = results
 
                 results = st.session_state.ai_results_cache.get(batch_key, [])
 
