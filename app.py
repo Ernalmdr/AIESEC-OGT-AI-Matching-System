@@ -65,8 +65,8 @@ def main():
     view_config = {
         "GTe Sign Up": {"app_id": "24908517", "view_id": "61629575"},
         "GTe Contacted": {"app_id": "24908517", "view_id": "61629576"},
-        "GTa Sign Up": {"app_id": "23409871", "view_id": "61478954"},
-        "GTa Contacted": {"app_id": "23409871", "view_id": "61478957"},
+        "GTa Sign Up": {"app_id": "23409870", "view_id": "61478954"},
+        "GTa Contacted": {"app_id": "23409870", "view_id": "61478957"},
         "GV Sign Up": {"app_id": "23409869", "view_id": "61629578"},
         "GV Contacted": {"app_id": "23409869", "view_id": "61629579"}
     }
